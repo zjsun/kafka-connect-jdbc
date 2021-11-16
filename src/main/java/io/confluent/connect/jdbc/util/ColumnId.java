@@ -18,6 +18,7 @@ package io.confluent.connect.jdbc.util;
 import java.util.Objects;
 
 import io.confluent.connect.jdbc.util.ExpressionBuilder.Expressable;
+import org.apache.commons.lang3.StringUtils;
 
 public class ColumnId implements Expressable {
 
@@ -42,7 +43,7 @@ public class ColumnId implements Expressable {
     this.tableId = tableId;
     this.name = columnName;
     this.alias = alias != null && !alias.trim().isEmpty() ? alias : name;
-    this.hash = Objects.hash(this.tableId, this.name);
+    this.hash = Objects.hash(this.tableId, StringUtils.upperCase(this.name));
   }
 
   public TableId tableId() {
@@ -93,7 +94,7 @@ public class ColumnId implements Expressable {
     }
     if (obj instanceof ColumnId) {
       ColumnId that = (ColumnId) obj;
-      return Objects.equals(this.name, that.name) && Objects.equals(this.alias, that.alias)
+      return StringUtils.equalsIgnoreCase(this.name, that.name) && StringUtils.equalsIgnoreCase(this.alias, that.alias)
              && Objects.equals(this.tableId, that.tableId);
     }
     return false;

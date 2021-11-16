@@ -26,8 +26,8 @@ import java.util.Set;
  */
 public class TableDefinition {
   private final TableId id;
-  private final Map<String, ColumnDefinition> columnsByName = new LinkedHashMap<>();
-  private final Map<String, String> pkColumnNames = new LinkedHashMap<>();
+  private final Map<String, ColumnDefinition> columnsByName = new LinkedCaseInsensitiveMap<>();
+  private final Map<String, String> pkColumnNames = new LinkedCaseInsensitiveMap<>();
   private final TableType type;
 
   public TableDefinition(

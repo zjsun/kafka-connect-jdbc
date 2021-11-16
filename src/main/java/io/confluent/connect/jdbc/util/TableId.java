@@ -18,6 +18,7 @@ package io.confluent.connect.jdbc.util;
 import java.util.Objects;
 
 import io.confluent.connect.jdbc.util.ExpressionBuilder.Expressable;
+import org.apache.commons.lang3.StringUtils;
 
 public class TableId implements Comparable<TableId>, Expressable {
 
@@ -34,7 +35,7 @@ public class TableId implements Comparable<TableId>, Expressable {
     this.catalogName = catalogName == null || catalogName.isEmpty() ? null : catalogName;
     this.schemaName = schemaName == null || schemaName.isEmpty() ? null : schemaName;
     this.tableName = tableName;
-    this.hash = Objects.hash(catalogName, schemaName, tableName);
+    this.hash = Objects.hash(StringUtils.upperCase(catalogName), StringUtils.upperCase(schemaName), StringUtils.upperCase(tableName));
   }
 
   public String catalogName() {
@@ -82,16 +83,16 @@ public class TableId implements Comparable<TableId>, Expressable {
     }
     if (obj instanceof TableId) {
       TableId that = (TableId) obj;
-      return Objects.equals(this.catalogName, that.catalogName)
-             && Objects.equals(this.schemaName, that.schemaName)
-             && Objects.equals(this.tableName, that.tableName);
+      return StringUtils.equalsIgnoreCase(this.catalogName, that.catalogName)
+              && StringUtils.equalsIgnoreCase(this.schemaName,that.schemaName)
+              && StringUtils.equalsIgnoreCase(this.tableName, that.tableName);
     }
     return false;
   }
 
   @Override
   public int compareTo(TableId that) {
-    if (that == this) {
+    if (that == this || this.equals(that)) {
       return 0;
     }
     int diff = this.tableName.compareTo(that.tableName);

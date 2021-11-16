@@ -65,6 +65,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.package.home>target/${project.artifactId}-${project.version}-package</project.package.home>
         <maven.release.plugin.version>2.5.3</maven.release.plugin.version>
+
+        <!-- datav -->
+        <skipTests>true</skipTests>
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+        <checkstyle.skip>true</checkstyle.skip>
+        <docker.prefix>docker.datav.com/datav</docker.prefix>
+        <project.repository.host>http://121.36.152.60:8081</project.repository.host>
     </properties>
 
     <repositories>
@@ -74,6 +81,20 @@
             <url>http://packages.confluent.io/maven/</url>
         </repository>
     </repositories>
+
+    <!--  私服Nexus -->
+    <distributionManagement>
+        <repository>
+            <id>datav-releases</id>
+            <name>Nexus Release Repository</name>
+            <url>${project.repository.host}/repository/maven-releases/</url>
+        </repository>
+        <snapshotRepository>
+            <id>datav-snapshots</id>
+            <name>Nexus Snapshot Repository</name>
+            <url>${project.repository.host}/repository/maven-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <dependencies>
         <dependency>
@@ -122,6 +143,13 @@
             <artifactId>jtds</artifactId>
             <version>${jtds.driver.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.12.0</version>
+            <optional>true</optional>
         </dependency>
 
         <dependency>
@@ -251,6 +279,23 @@
 
     <build>
         <plugins>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>datav-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>datav</classifier>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

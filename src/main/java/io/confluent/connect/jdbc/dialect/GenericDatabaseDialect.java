@@ -17,6 +17,9 @@ package io.confluent.connect.jdbc.dialect;
 
 import java.time.ZoneOffset;
 import java.util.TimeZone;
+
+import io.confluent.connect.jdbc.util.*;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.connect.data.Date;
@@ -77,19 +80,9 @@ import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig;
 import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig.NumericMapping;
 import io.confluent.connect.jdbc.source.JdbcSourceTaskConfig;
 import io.confluent.connect.jdbc.source.TimestampIncrementingCriteria;
-import io.confluent.connect.jdbc.util.ColumnDefinition;
 import io.confluent.connect.jdbc.util.ColumnDefinition.Mutability;
 import io.confluent.connect.jdbc.util.ColumnDefinition.Nullability;
-import io.confluent.connect.jdbc.util.ColumnId;
-import io.confluent.connect.jdbc.util.DateTimeUtils;
-import io.confluent.connect.jdbc.util.ExpressionBuilder;
 import io.confluent.connect.jdbc.util.ExpressionBuilder.Transform;
-import io.confluent.connect.jdbc.util.IdentifierRules;
-import io.confluent.connect.jdbc.util.JdbcDriverInfo;
-import io.confluent.connect.jdbc.util.QuoteMethod;
-import io.confluent.connect.jdbc.util.TableDefinition;
-import io.confluent.connect.jdbc.util.TableId;
-import io.confluent.connect.jdbc.util.TableType;
 
 /**
  * A {@link DatabaseDialect} implementation that provides functionality based upon JDBC and SQL.
@@ -414,20 +407,23 @@ public class GenericDatabaseDialect implements DatabaseDialect {
     String tableTypeDisplay = displayableTableTypes(tableTypes, ", ");
     glog.debug("Using {} dialect to get {}", this, tableTypeDisplay);
 
-    try (ResultSet rs = metadata.getTables(catalogPattern(), schemaPattern(), "%", tableTypes)) {
-      List<TableId> tableIds = new ArrayList<>();
-      while (rs.next()) {
-        String catalogName = rs.getString(1);
-        String schemaName = rs.getString(2);
-        String tableName = rs.getString(3);
-        TableId tableId = new TableId(catalogName, schemaName, tableName);
-        if (includeTable(tableId)) {
-          tableIds.add(tableId);
+    List<TableId> tableIds = new ArrayList<>();
+    return CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{catalogPattern(), schemaPattern()}, args -> {
+      try (ResultSet rs = metadata.getTables(args[0], args[1], "%", tableTypes)) {
+        while (rs.next()) {
+          String catalogName = rs.getString(1);
+          String schemaName = rs.getString(2);
+          String tableName = rs.getString(3);
+          TableId tableId = new TableId(catalogName, schemaName, tableName);
+          if (includeTable(tableId)) {
+            tableIds.add(tableId);
+          }
         }
+        if (!tableIds.isEmpty()) glog.debug("Used {} dialect to find {} {}", this, tableIds.size(), tableTypeDisplay);
+        return tableIds;
       }
-      glog.debug("Used {} dialect to find {} {}", this, tableIds.size(), tableTypeDisplay);
-      return tableIds;
-    }
+    }, list -> !list.isEmpty(), tableIds);
+
   }
 
   protected String catalogPattern() {
@@ -573,22 +569,15 @@ public class GenericDatabaseDialect implements DatabaseDialect {
     String[] tableTypes = tableTypes(metadata, this.tableTypes);
     String tableTypeDisplay = displayableTableTypes(tableTypes, "/");
     glog.info("Checking {} dialect for existence of {} {}", this, tableTypeDisplay, tableId);
-    try (ResultSet rs = connection.getMetaData().getTables(
-        tableId.catalogName(),
-        tableId.schemaName(),
-        tableId.tableName(),
-        tableTypes
-    )) {
-      final boolean exists = rs.next();
-      glog.info(
-          "Using {} dialect {} {} {}",
-          this,
-          tableTypeDisplay,
-          tableId,
-          exists ? "present" : "absent"
-      );
-      return exists;
-    }
+
+    return CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{tableId.catalogName(), tableId.schemaName(), tableId.tableName()}, args -> {
+      try (ResultSet rs = connection.getMetaData().getTables(args[0], args[1], args[2], tableTypes)) {
+        final boolean exists = rs.next();
+        glog.info("Using {} dialect {} {} {}", this, tableTypeDisplay, tableId, exists ? "present" : "absent");
+        return exists;
+      }
+    }, exists -> exists, false);
+
   }
 
   protected String displayableTableTypes(String[] types, String delim) {
@@ -625,88 +614,82 @@ public class GenericDatabaseDialect implements DatabaseDialect {
     );
 
     // Get the primary keys of the table(s) ...
-    final Set<ColumnId> pkColumns = primaryKeyColumns(
-        connection,
-        catalogPattern,
-        schemaPattern,
-        tablePattern
-    );
+    final Set<ColumnId> pkColumns = primaryKeyColumns(connection, catalogPattern, schemaPattern, tablePattern);
+
     Map<ColumnId, ColumnDefinition> results = new HashMap<>();
-    try (ResultSet rs = connection.getMetaData().getColumns(
-        catalogPattern,
-        schemaPattern,
-        tablePattern,
-        columnPattern
-    )) {
-      final int rsColumnCount = rs.getMetaData().getColumnCount();
-      while (rs.next()) {
-        final String catalogName = rs.getString(1);
-        final String schemaName = rs.getString(2);
-        final String tableName = rs.getString(3);
-        final TableId tableId = new TableId(catalogName, schemaName, tableName);
-        final String columnName = rs.getString(4);
-        final ColumnId columnId = new ColumnId(tableId, columnName, null);
-        final int jdbcType = rs.getInt(5);
-        final String typeName = rs.getString(6);
-        final int precision = rs.getInt(7);
-        final int scale = rs.getInt(9);
-        final String typeClassName = null;
-        Nullability nullability;
-        final int nullableValue = rs.getInt(11);
-        switch (nullableValue) {
-          case DatabaseMetaData.columnNoNulls:
-            nullability = Nullability.NOT_NULL;
-            break;
-          case DatabaseMetaData.columnNullable:
-            nullability = Nullability.NULL;
-            break;
-          case DatabaseMetaData.columnNullableUnknown:
-          default:
-            nullability = Nullability.UNKNOWN;
-            break;
-        }
-        Boolean autoIncremented = null;
-        if (rsColumnCount >= 23) {
-          // Not all drivers include all columns ...
-          String isAutoIncremented = rs.getString(23);
-          if ("yes".equalsIgnoreCase(isAutoIncremented)) {
-            autoIncremented = Boolean.TRUE;
-          } else if ("no".equalsIgnoreCase(isAutoIncremented)) {
-            autoIncremented = Boolean.FALSE;
+
+    return CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{catalogPattern, schemaPattern, tablePattern, columnPattern}, args -> {
+      try (ResultSet rs = connection.getMetaData().getColumns(args[0], args[1], args[2], args[3])) {
+        final int rsColumnCount = rs.getMetaData().getColumnCount();
+        while (rs.next()) {
+          final String catalogName = rs.getString(1);
+          final String schemaName = rs.getString(2);
+          final String tableName = rs.getString(3);
+          final TableId tableId = new TableId(catalogName, schemaName, tableName);
+          final String columnName = rs.getString(4);
+          final ColumnId columnId = new ColumnId(tableId, columnName, null);
+          final int jdbcType = rs.getInt(5);
+          final String typeName = rs.getString(6);
+          final int precision = rs.getInt(7);
+          final int scale = rs.getInt(9);
+          final String typeClassName = null;
+          Nullability nullability;
+          final int nullableValue = rs.getInt(11);
+          switch (nullableValue) {
+            case DatabaseMetaData.columnNoNulls:
+              nullability = Nullability.NOT_NULL;
+              break;
+            case DatabaseMetaData.columnNullable:
+              nullability = Nullability.NULL;
+              break;
+            case DatabaseMetaData.columnNullableUnknown:
+            default:
+              nullability = Nullability.UNKNOWN;
+              break;
           }
+          Boolean autoIncremented = null;
+          if (rsColumnCount >= 23) {
+            // Not all drivers include all columns ...
+            String isAutoIncremented = rs.getString(23);
+            if ("yes".equalsIgnoreCase(isAutoIncremented)) {
+              autoIncremented = Boolean.TRUE;
+            } else if ("no".equalsIgnoreCase(isAutoIncremented)) {
+              autoIncremented = Boolean.FALSE;
+            }
+          }
+          Boolean signed = null;
+          Boolean caseSensitive = null;
+          Boolean searchable = null;
+          Boolean currency = null;
+          Integer displaySize = null;
+          boolean isPrimaryKey = pkColumns.contains(columnId);
+          if (isPrimaryKey) {
+            // Some DBMSes report pks as null
+            nullability = Nullability.NOT_NULL;
+          }
+          ColumnDefinition defn = columnDefinition(
+                  rs,
+                  columnId,
+                  jdbcType,
+                  typeName,
+                  typeClassName,
+                  nullability,
+                  Mutability.UNKNOWN,
+                  precision,
+                  scale,
+                  signed,
+                  displaySize,
+                  autoIncremented,
+                  caseSensitive,
+                  searchable,
+                  currency,
+                  isPrimaryKey
+          );
+          results.put(columnId, defn);
         }
-        Boolean signed = null;
-        Boolean caseSensitive = null;
-        Boolean searchable = null;
-        Boolean currency = null;
-        Integer displaySize = null;
-        boolean isPrimaryKey = pkColumns.contains(columnId);
-        if (isPrimaryKey) {
-          // Some DBMSes report pks as null
-          nullability = Nullability.NOT_NULL;
-        }
-        ColumnDefinition defn = columnDefinition(
-            rs,
-            columnId,
-            jdbcType,
-            typeName,
-            typeClassName,
-            nullability,
-            Mutability.UNKNOWN,
-            precision,
-            scale,
-            signed,
-            displaySize,
-            autoIncremented,
-            caseSensitive,
-            searchable,
-            currency,
-            isPrimaryKey
-        );
-        results.put(columnId, defn);
+        return results;
       }
-      return results;
-    }
+    }, map -> !map.isEmpty(), results);
   }
 
   @Override
@@ -788,19 +771,24 @@ public class GenericDatabaseDialect implements DatabaseDialect {
 
     // Get the primary keys of the table(s) ...
     final Set<ColumnId> pkColumns = new HashSet<>();
-    try (ResultSet rs = connection.getMetaData().getPrimaryKeys(
-        catalogPattern, schemaPattern, tablePattern)) {
-      while (rs.next()) {
-        String catalogName = rs.getString(1);
-        String schemaName = rs.getString(2);
-        String tableName = rs.getString(3);
-        TableId tableId = new TableId(catalogName, schemaName, tableName);
-        final String colName = rs.getString(4);
-        ColumnId columnId = new ColumnId(tableId, colName);
-        pkColumns.add(columnId);
+
+    return CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{catalogPattern, schemaPattern, tablePattern}, args -> {
+      try (ResultSet rs = connection.getMetaData().getPrimaryKeys(
+              args[0], args[1], args[2])) {
+        while (rs.next()) {
+          String catalogName = rs.getString(1);
+          String schemaName = rs.getString(2);
+          String tableName = rs.getString(3);
+          TableId tableId = new TableId(catalogName, schemaName, tableName);
+          final String colName = rs.getString(4);
+          ColumnId columnId = new ColumnId(tableId, colName);
+          pkColumns.add(columnId);
+        }
+
+        return pkColumns;
       }
-    }
-    return pkColumns;
+    }, columns -> !columns.isEmpty(), pkColumns);
+
   }
 
   @Override
@@ -843,31 +831,35 @@ public class GenericDatabaseDialect implements DatabaseDialect {
     String[] tableTypes = tableTypes(metadata, this.tableTypes);
     String tableTypeDisplay = displayableTableTypes(tableTypes, "/");
     glog.info("Checking {} dialect for type of {} {}", this, tableTypeDisplay, tableId);
-    try (ResultSet rs = connection.getMetaData().getTables(
-        tableId.catalogName(),
-        tableId.schemaName(),
-        tableId.tableName(),
-        tableTypes
-    )) {
-      if (rs.next()) {
-        //final String catalogName = rs.getString(1);
-        //final String schemaName = rs.getString(2);
-        //final String tableName = rs.getString(3);
-        final String tableType = rs.getString(4);
-        try {
-          return TableType.get(tableType);
-        } catch (IllegalArgumentException e) {
-          glog.warn(
-              "{} dialect found unknown type '{}' for {} {}; using TABLE",
-              this,
-              tableType,
-              tableTypeDisplay,
-              tableId
-          );
-          return TableType.TABLE;
+
+    TableType result = CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{tableId.catalogName(), tableId.schemaName(), tableId.tableName()}, args -> {
+      try (ResultSet rs = connection.getMetaData().getTables(
+              args[0],
+              args[1],
+              args[2],
+              tableTypes
+      )) {
+        if (rs.next()) {
+          final String tableType = rs.getString(4);
+          try {
+            return TableType.get(tableType);
+          } catch (IllegalArgumentException e) {
+            glog.warn(
+                    "{} dialect found unknown type '{}' for {} {}; using TABLE",
+                    this,
+                    tableType,
+                    tableTypeDisplay,
+                    tableId
+            );
+            return TableType.TABLE;
+          }
         }
       }
-    }
+      return null;
+    }, ret -> ret != null, null);
+
+    if (result != null) return result;
+
     glog.warn(
         "{} dialect did not find type for {} {}; using TABLE",
         this,
