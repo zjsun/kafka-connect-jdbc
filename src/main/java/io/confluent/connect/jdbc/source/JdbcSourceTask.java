@@ -17,7 +17,10 @@ package io.confluent.connect.jdbc.source;
 
 import java.sql.SQLNonTransientException;
 import java.util.TimeZone;
+
+import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.connect.errors.ConnectException;
@@ -70,6 +73,8 @@ public class JdbcSourceTask extends SourceTask {
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final AtomicLong taskThreadId = new AtomicLong(0);
 
+  private final AtomicBoolean isTaskMode = new AtomicBoolean(false);
+
   public JdbcSourceTask() {
     this.time = new SystemTime();
   }
@@ -91,6 +96,8 @@ public class JdbcSourceTask extends SourceTask {
     } catch (ConfigException e) {
       throw new ConnectException("Couldn't start JdbcSourceTask due to configuration error", e);
     }
+
+    isTaskMode.set(StringUtils.equalsIgnoreCase("task", config.getString(JdbcSourceConnectorConfig.DKE_MODE_CONFIG)));
 
     final String url = config.getString(JdbcSourceConnectorConfig.CONNECTION_URL_CONFIG);
     final int maxConnAttempts = config.getInt(JdbcSourceConnectorConfig.CONNECTION_ATTEMPTS_CONFIG);
@@ -205,10 +212,10 @@ public class JdbcSourceTask extends SourceTask {
       if (mode.equals(JdbcSourceTaskConfig.MODE_BULK)) {
         tableQueue.add(
             new BulkTableQuerier(
-                dialect, 
-                queryMode, 
-                tableOrQuery, 
-                topicPrefix, 
+                dialect,
+                queryMode,
+                tableOrQuery,
+                topicPrefix,
                 suffix
             )
         );
@@ -359,6 +366,12 @@ public class JdbcSourceTask extends SourceTask {
     while (running.get()) {
       final TableQuerier querier = tableQueue.peek();
 
+      // task模式下只迭代一次
+      if (isTaskMode.get() && querier == null){
+        stop();
+        break;
+      }
+
       if (!querier.querying()) {
         // If not in the middle of an update, wait for next update time
         final long nextUpdate = querier.getLastUpdate()
@@ -438,6 +451,10 @@ public class JdbcSourceTask extends SourceTask {
       resetAndRequeueHead(querier);
     }
     closeResources();
+
+    if (isTaskMode.get()) {
+      Exit.exit(0, "Task stopped.");
+    }
   }
 
   private void resetAndRequeueHead(TableQuerier expectedHead) {
@@ -445,7 +462,8 @@ public class JdbcSourceTask extends SourceTask {
     TableQuerier removedQuerier = tableQueue.poll();
     assert removedQuerier == expectedHead;
     expectedHead.reset(time.milliseconds());
-    tableQueue.add(expectedHead);
+    if (!isTaskMode.get())
+      tableQueue.add(expectedHead);
   }
 
   private void validateNonNullable(

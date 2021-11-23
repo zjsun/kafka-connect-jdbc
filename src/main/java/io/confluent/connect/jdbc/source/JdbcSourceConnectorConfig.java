@@ -282,7 +282,7 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
 
   public static final String QUERY_SUFFIX_CONFIG = "query.suffix";
   public static final String QUERY_SUFFIX_DEFAULT = "";
-  public static final String QUERY_SUFFIX_DOC = 
+  public static final String QUERY_SUFFIX_DOC =
       "Suffix to append at the end of the generated query.";
   public static final String QUERY_SUFFIX_DISPLAY = "Query suffix";
 
@@ -312,12 +312,33 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
       + "  In most cases it only makes sense to have either TABLE or VIEW.";
   private static final String TABLE_TYPE_DISPLAY = "Table Types";
 
+  // datav fix
+  public static final String DKE_MODE_DEFAULT = "stream";
+  public static final String DKE_MODE_CONFIG = "dke.mode";
+  private static final String DKE_MODE_DOC = "-";
+  private static final String DKE_MODE_DISPLAY = "DKE Mode";
+
   public static ConfigDef baseConfigDef() {
     ConfigDef config = new ConfigDef();
     addDatabaseOptions(config);
     addModeOptions(config);
     addConnectorOptions(config);
+    addDkeConfig(config);
     return config;
+  }
+
+  private static final void addDkeConfig(ConfigDef config){
+    config.define(
+            DKE_MODE_CONFIG,
+            Type.STRING, DKE_MODE_DEFAULT,
+            ConfigDef.ValidString.in("stream", "task"),
+            Importance.LOW,
+            DKE_MODE_DOC,
+            MODE_GROUP,
+            Integer.MAX_VALUE,
+            Width.SHORT,
+            DKE_MODE_DISPLAY
+    );
   }
 
   private static final void addDatabaseOptions(ConfigDef config) {
