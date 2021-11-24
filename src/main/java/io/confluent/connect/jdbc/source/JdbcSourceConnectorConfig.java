@@ -31,6 +31,8 @@ import io.confluent.connect.jdbc.util.QuoteMethod;
 import io.confluent.connect.jdbc.util.TimeZoneValidator;
 
 import java.util.regex.Pattern;
+
+import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigDef.Importance;
@@ -675,6 +677,10 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
     if (mode.equals(JdbcSourceConnectorConfig.MODE_UNSPECIFIED)) {
       throw new ConfigException("Query mode must be specified");
     }
+  }
+
+  public boolean isTaskMode() {
+    return StringUtils.equalsIgnoreCase("task", getString(DKE_MODE_CONFIG));
   }
 
   public String topicPrefix() {

@@ -18,6 +18,7 @@ package io.confluent.connect.jdbc.source;
 import java.sql.SQLNonTransientException;
 import java.util.TimeZone;
 
+import io.confluent.connect.jdbc.util.ExitUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.Exit;
@@ -73,8 +74,6 @@ public class JdbcSourceTask extends SourceTask {
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final AtomicLong taskThreadId = new AtomicLong(0);
 
-  private final AtomicBoolean isTaskMode = new AtomicBoolean(false);
-
   public JdbcSourceTask() {
     this.time = new SystemTime();
   }
@@ -96,8 +95,6 @@ public class JdbcSourceTask extends SourceTask {
     } catch (ConfigException e) {
       throw new ConnectException("Couldn't start JdbcSourceTask due to configuration error", e);
     }
-
-    isTaskMode.set(StringUtils.equalsIgnoreCase("task", config.getString(JdbcSourceConnectorConfig.DKE_MODE_CONFIG)));
 
     final String url = config.getString(JdbcSourceConnectorConfig.CONNECTION_URL_CONFIG);
     final int maxConnAttempts = config.getInt(JdbcSourceConnectorConfig.CONNECTION_ATTEMPTS_CONFIG);
@@ -367,8 +364,12 @@ public class JdbcSourceTask extends SourceTask {
       final TableQuerier querier = tableQueue.peek();
 
       // task模式下只迭代一次
-      if (isTaskMode.get() && querier == null){
+      if (this.config.isTaskMode() && querier == null){
         stop();
+
+        if (this.config.isTaskMode()) {
+          ExitUtils.forceExit(0, "Task done.", 30);
+        }
         break;
       }
 
@@ -451,10 +452,6 @@ public class JdbcSourceTask extends SourceTask {
       resetAndRequeueHead(querier);
     }
     closeResources();
-
-    if (isTaskMode.get()) {
-      Exit.exit(0, "Task stopped.");
-    }
   }
 
   private void resetAndRequeueHead(TableQuerier expectedHead) {
@@ -462,7 +459,7 @@ public class JdbcSourceTask extends SourceTask {
     TableQuerier removedQuerier = tableQueue.poll();
     assert removedQuerier == expectedHead;
     expectedHead.reset(time.milliseconds());
-    if (!isTaskMode.get())
+    if (!this.config.isTaskMode())
       tableQueue.add(expectedHead);
   }
 
