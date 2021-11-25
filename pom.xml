@@ -66,6 +66,8 @@
         <project.package.home>target/${project.artifactId}-${project.version}-package</project.package.home>
         <maven.release.plugin.version>2.5.3</maven.release.plugin.version>
 
+        <kafka.version>2.7.1</kafka.version>
+
         <!-- datav -->
         <skipTests>true</skipTests>
         <maven.javadoc.skip>true</maven.javadoc.skip>
@@ -218,12 +220,12 @@
             <version>2.5.4</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>connect-runtime</artifactId>
-            <version>${kafka.version}</version>
-            <scope>test</scope>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>org.apache.kafka</groupId>-->
+<!--            <artifactId>connect-runtime</artifactId>-->
+<!--            <version>${kafka.version}</version>-->
+<!--            <scope>test</scope>-->
+<!--        </dependency>-->
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>connect-runtime</artifactId>

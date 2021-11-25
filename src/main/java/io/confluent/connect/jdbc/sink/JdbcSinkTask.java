@@ -76,7 +76,8 @@ public class JdbcSinkTask extends SinkTask {
     void checkIfTaskDone() {
         if (ConfigUtils.isDkeTaskMode(this.config) && countDown.decrementAndGet() <= 0) {
             if (JdbcSinkConnector.taskCount.decrementAndGet() <= 0) {
-                log.info("All tasks done and exit.");
+                log.info("All tasks done and parepare clean up ...");
+                writer.cleanup();
                 throw new ConnectException(ExitUtils.MSG_DONE); // force task stop
             }
         }
