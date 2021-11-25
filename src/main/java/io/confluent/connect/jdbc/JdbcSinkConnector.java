@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.confluent.connect.jdbc.sink.JdbcSinkConfig;
 import io.confluent.connect.jdbc.sink.JdbcSinkTask;
@@ -34,6 +35,8 @@ public class JdbcSinkConnector extends SinkConnector {
   private static final Logger log = LoggerFactory.getLogger(JdbcSinkConnector.class);
 
   private Map<String, String> configProps;
+
+  public static final AtomicInteger taskCount = new AtomicInteger(1);
 
   public Class<? extends Task> taskClass() {
     return JdbcSinkTask.class;
@@ -46,6 +49,8 @@ public class JdbcSinkConnector extends SinkConnector {
     for (int i = 0; i < maxTasks; ++i) {
       configs.add(configProps);
     }
+
+    taskCount.set(configs.size());
     return configs;
   }
 

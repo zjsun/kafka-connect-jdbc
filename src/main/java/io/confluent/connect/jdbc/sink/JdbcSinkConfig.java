@@ -254,13 +254,19 @@ public class JdbcSinkConfig extends AbstractConfig {
       + "view definition does not match the records' schemas (regardless of ``"
       + AUTO_EVOLVE + "``).";
 
+  // datav fix
+  public static final String DKE_MODE_DEFAULT = "stream";
+  public static final String DKE_MODE_CONFIG = "dke.mode";
+  private static final String DKE_MODE_DOC = "-";
+  private static final String DKE_MODE_DISPLAY = "DKE Mode";
+
   private static final EnumRecommender QUOTE_METHOD_RECOMMENDER =
       EnumRecommender.in(QuoteMethod.values());
 
   private static final EnumRecommender TABLE_TYPES_RECOMMENDER =
       EnumRecommender.in(TableType.values());
 
-  public static final ConfigDef CONFIG_DEF = new ConfigDef()
+  public static final ConfigDef CONFIG_DEF = ConfigUtils.configDkeMode(new ConfigDef()
         // Connection
         .define(
             CONNECTION_URL,
@@ -491,7 +497,7 @@ public class JdbcSinkConfig extends AbstractConfig {
             2,
             ConfigDef.Width.SHORT,
             RETRY_BACKOFF_MS_DISPLAY
-        );
+        ));
 
   public final String connectorName;
   public final String connectionUrl;
@@ -542,6 +548,20 @@ public class JdbcSinkConfig extends AbstractConfig {
           "Primary key mode must be 'record_key' when delete support is enabled");
     }
     tableTypes = TableType.parse(getList(TABLE_TYPES_CONFIG));
+  }
+
+  private static final void addDkeConfig(ConfigDef config){
+    config.define(
+            DKE_MODE_CONFIG,
+            ConfigDef.Type.STRING, DKE_MODE_DEFAULT,
+            ConfigDef.ValidString.in("stream", "task"),
+            ConfigDef.Importance.LOW,
+            DKE_MODE_DOC,
+            "DKE",
+            Integer.MAX_VALUE,
+            ConfigDef.Width.SHORT,
+            DKE_MODE_DISPLAY
+    );
   }
 
   private String getPasswordValue(String key) {

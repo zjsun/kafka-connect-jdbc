@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.confluent.connect.jdbc.util.ConfigUtils;
 import io.confluent.connect.jdbc.util.DatabaseDialectRecommender;
 import io.confluent.connect.jdbc.util.EnumRecommender;
 import io.confluent.connect.jdbc.util.QuoteMethod;
@@ -314,33 +315,13 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
       + "  In most cases it only makes sense to have either TABLE or VIEW.";
   private static final String TABLE_TYPE_DISPLAY = "Table Types";
 
-  // datav fix
-  public static final String DKE_MODE_DEFAULT = "stream";
-  public static final String DKE_MODE_CONFIG = "dke.mode";
-  private static final String DKE_MODE_DOC = "-";
-  private static final String DKE_MODE_DISPLAY = "DKE Mode";
-
   public static ConfigDef baseConfigDef() {
     ConfigDef config = new ConfigDef();
     addDatabaseOptions(config);
     addModeOptions(config);
     addConnectorOptions(config);
-    addDkeConfig(config);
+    ConfigUtils.configDkeMode(config);
     return config;
-  }
-
-  private static final void addDkeConfig(ConfigDef config){
-    config.define(
-            DKE_MODE_CONFIG,
-            Type.STRING, DKE_MODE_DEFAULT,
-            ConfigDef.ValidString.in("stream", "task"),
-            Importance.LOW,
-            DKE_MODE_DOC,
-            MODE_GROUP,
-            Integer.MAX_VALUE,
-            Width.SHORT,
-            DKE_MODE_DISPLAY
-    );
   }
 
   private static final void addDatabaseOptions(ConfigDef config) {
@@ -677,10 +658,6 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
     if (mode.equals(JdbcSourceConnectorConfig.MODE_UNSPECIFIED)) {
       throw new ConfigException("Query mode must be specified");
     }
-  }
-
-  public boolean isTaskMode() {
-    return StringUtils.equalsIgnoreCase("task", getString(DKE_MODE_CONFIG));
   }
 
   public String topicPrefix() {

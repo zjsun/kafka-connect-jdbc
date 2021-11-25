@@ -22,14 +22,13 @@ import io.confluent.connect.jdbc.source.JdbcSourceTask;
 import io.confluent.connect.jdbc.source.JdbcSourceTaskConfig;
 import io.confluent.connect.jdbc.source.TableMonitorThread;
 import io.confluent.connect.jdbc.util.CachedConnectionProvider;
+import io.confluent.connect.jdbc.util.ConfigUtils;
 import io.confluent.connect.jdbc.util.ExitUtils;
 import io.confluent.connect.jdbc.util.ExpressionBuilder;
 import io.confluent.connect.jdbc.util.TableId;
 import io.confluent.connect.jdbc.util.Version;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.utils.Exit;
-import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceConnector;
@@ -44,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * JdbcConnector is a Kafka Connect Connector implementation that watches a JDBC database and
@@ -61,6 +61,9 @@ public class JdbcSourceConnector extends SourceConnector {
     private TableMonitorThread tableMonitorThread;
     private DatabaseDialect dialect;
 
+    // datav fix
+    public static final AtomicInteger taskCount = new AtomicInteger(1);
+
     @Override
     public String version() {
         return Version.getVersion();
@@ -68,6 +71,7 @@ public class JdbcSourceConnector extends SourceConnector {
 
     @Override
     public void start(Map<String, String> properties) throws ConnectException {
+//        try {
         log.info("Starting JDBC Source Connector");
         try {
             configProperties = properties;
@@ -125,6 +129,10 @@ public class JdbcSourceConnector extends SourceConnector {
         if (query.isEmpty()) {
             tableMonitorThread.start();
         }
+//        } catch (Exception ex) {
+//            log.error(ex.getMessage(), ex);
+//            ExitUtils.forceExit(1, ex.getMessage());
+//        }
     }
 
     protected CachedConnectionProvider connectionProvider(int maxConnAttempts, long retryBackoff) {
@@ -145,16 +153,16 @@ public class JdbcSourceConnector extends SourceConnector {
             taskProps.put(JdbcSourceTaskConfig.TABLES_CONFIG, "");
             taskConfigs = Collections.singletonList(taskProps);
             log.trace("Producing task configs with custom query");
-            return taskConfigs;
         } else {
             List<TableId> currentTables = tableMonitorThread.tables();
             if (currentTables.isEmpty()) {
                 taskConfigs = Collections.emptyList();
-                log.warn("No tasks will be run because no tables were found");
-                if (this.config.isTaskMode()) {
-                    this.stop();
-                    ExitUtils.forceExit(1, "No tables were found.", 30);
-                }
+//                log.warn("No tasks will be run because no tables were found");
+
+                throw new ConnectException("No tasks will be run because no tables were found");
+//                if (ConfigUtils.isDkeTaskMode(this.config)) {
+//                    ExitUtils.forceExit(1, "No tables were found.");
+//                }
             } else {
                 int numGroups = Math.min(currentTables.size(), maxTasks);
                 List<List<TableId>> tablesGrouped =
@@ -173,6 +181,8 @@ public class JdbcSourceConnector extends SourceConnector {
                 );
             }
         }
+
+        taskCount.set(taskConfigs.size());
         return taskConfigs;
     }
 

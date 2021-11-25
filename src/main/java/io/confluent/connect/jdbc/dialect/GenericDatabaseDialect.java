@@ -573,7 +573,7 @@ public class GenericDatabaseDialect implements DatabaseDialect {
     return CaseInsensitiveMetadata.tryCaseInsensitive(new String[]{tableId.catalogName(), tableId.schemaName(), tableId.tableName()}, args -> {
       try (ResultSet rs = connection.getMetaData().getTables(args[0], args[1], args[2], tableTypes)) {
         final boolean exists = rs.next();
-        glog.info("Using {} dialect {} {} {}", this, tableTypeDisplay, tableId, exists ? "present" : "absent");
+        glog.info("Using {} dialect {} {} {}", this, tableTypeDisplay, new TableId(args[0], args[1], args[2]), exists ? "present" : "absent");
         return exists;
       }
     }, exists -> exists, false);
