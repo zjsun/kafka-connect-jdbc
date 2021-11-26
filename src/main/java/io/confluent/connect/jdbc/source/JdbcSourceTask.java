@@ -364,8 +364,10 @@ public class JdbcSourceTask extends SourceTask {
     }
 
     void checkIfTaskDone() {
-        if (ConfigUtils.isDkeTaskMode(this.config) && JdbcSourceConnector.taskCount.decrementAndGet() <= 0) {
-            log.info("All tasks done and exit.");
+        if (ConfigUtils.isDkeTaskMode(this.config)) {
+            if (JdbcSourceConnector.taskCount.decrementAndGet() <= 0){
+                // do something finally if needed
+            }
             throw new ConnectException(ExitUtils.MSG_DONE);// force task stop
         }
     }

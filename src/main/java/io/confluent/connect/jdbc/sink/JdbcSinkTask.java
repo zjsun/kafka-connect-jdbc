@@ -78,8 +78,8 @@ public class JdbcSinkTask extends SinkTask {
             if (JdbcSinkConnector.taskCount.decrementAndGet() <= 0) {
                 log.info("All tasks done and parepare clean up ...");
                 writer.cleanup();
-                throw new ConnectException(ExitUtils.MSG_DONE); // force task stop
             }
+            throw new ConnectException(ExitUtils.MSG_DONE); // force task stop
         }
     }
 
@@ -174,14 +174,6 @@ public class JdbcSinkTask extends SinkTask {
         // Not necessary
     }
 
-//    void maybeExit(int code) {
-//        if (JdbcSinkConnector.taskCount.decrementAndGet() <= 0) {
-//            // todo: 清理topic和数据表已删除记录
-//            log.info("All tasks done and exit.");
-//            ExitUtils.forceExit(code, "All tasks done and exit.");
-//        }
-//    }
-
     public void stop() {
         log.info("Stopping task");
         try {
@@ -197,9 +189,6 @@ public class JdbcSinkTask extends SinkTask {
                 dialect = null;
             }
         }
-
-//        // 外部调用默认都是错误
-//        maybeExit(1);
     }
 
     @Override
