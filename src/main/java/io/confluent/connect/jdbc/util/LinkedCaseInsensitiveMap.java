@@ -51,7 +51,7 @@ public class LinkedCaseInsensitiveMap<V> implements Map<String, V>, Serializable
 
 
     public LinkedCaseInsensitiveMap(int expectedSize, Locale locale) {
-        this.targetMap = new LinkedHashMap<String, V>((int) (expectedSize)) {
+        this.targetMap = new LinkedHashMap<String, V>(expectedSize) {
             @Override
             public boolean containsKey(Object key) {
                 return LinkedCaseInsensitiveMap.this.containsKey(key);
