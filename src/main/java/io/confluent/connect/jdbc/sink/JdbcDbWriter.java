@@ -120,9 +120,9 @@ public class JdbcDbWriter {
     public void cleanup() {
         // 1) 删除topic
         if (!allTopics.isEmpty()) {
-            log.info("Cleaning up topics: " + StringUtils.join(allTables));
+            log.info("Cleaning up topics: " + StringUtils.join(allTopics));
             this.topicAdmin.topicAdmin().admin().deleteTopics(allTopics);
-            log.info("Topics deleted: " + StringUtils.join(allTables));
+            log.info("Topics deleted: " + StringUtils.join(allTopics));
         }
 
         // 2) 删除记录
