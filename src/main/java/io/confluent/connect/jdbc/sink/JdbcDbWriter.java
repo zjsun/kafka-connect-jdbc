@@ -45,7 +45,7 @@ public class JdbcDbWriter {
     private final DbStructure dbStructure;
     final CachedConnectionProvider cachedConnectionProvider;
 
-    public static final String OP_ID = "DKE_OP_ID"; // 时间戳字段
+    public static final String DKE_OP_ID = "DKE_OP_ID"; // 时间戳字段
     private long latestOpId = 0; //最新时间戳（DKE_OP_ID字段值）
     private final Set<TableId> allTables = new HashSet<>(); // 当前实例处理过的所有表
     private final Set<String> allTopics = new HashSet<>(); // 当前实例处理过的所有topic
@@ -131,7 +131,7 @@ public class JdbcDbWriter {
             final Connection connection = cachedConnectionProvider.getConnection();
             try {
                 for (TableId tableId : allTables) {
-                    String deleteSql = dbDialect.buildDeleteStatement(tableId, Collections.singleton(new ColumnId(tableId, OP_ID)));
+                    String deleteSql = dbDialect.buildDeleteStatement(tableId, Collections.singleton(new ColumnId(tableId, DKE_OP_ID)));
                     deleteSql = StringUtils.replace(deleteSql, "= ?", "< ?");
                     try (PreparedStatement deleteStatement = dbDialect.createPreparedStatement(connection, deleteSql)) {
                         deleteStatement.setLong(1, latestOpId);
@@ -156,8 +156,8 @@ public class JdbcDbWriter {
 
     void extractOpId(SinkRecord record) {
         Struct struct = (Struct) record.value();
-        if (record.valueSchema().field(OP_ID) != null && struct != null) {
-            Long opId = struct.getInt64(OP_ID);
+        if (record.valueSchema().field(DKE_OP_ID) != null && struct != null) {
+            Long opId = struct.getInt64(DKE_OP_ID);
             if (opId != null && opId.longValue() > latestOpId) {
                 latestOpId = opId.longValue();
             }
