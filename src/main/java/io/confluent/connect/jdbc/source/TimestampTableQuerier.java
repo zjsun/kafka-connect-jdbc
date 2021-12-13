@@ -51,7 +51,6 @@ public class TimestampTableQuerier extends TimestampIncrementingTableQuerier {
 
   private boolean exhaustedResultSet;
   private PendingRecord nextRecord;
-  private Timestamp latestCommittableTimestamp;
 
   public TimestampTableQuerier(
       DatabaseDialect dialect,
@@ -77,7 +76,6 @@ public class TimestampTableQuerier extends TimestampIncrementingTableQuerier {
         suffix
     );
 
-    this.latestCommittableTimestamp = this.offset.getTimestampOffset();
     this.exhaustedResultSet = false;
     this.nextRecord = null;
   }
@@ -127,9 +125,9 @@ public class TimestampTableQuerier extends TimestampIncrementingTableQuerier {
     nextRecord = exhaustedResultSet ? null : doExtractRecord();
     if (nextRecord == null
         || canCommitTimestamp(currentRecord.timestamp(), nextRecord.timestamp())) {
-      latestCommittableTimestamp = currentRecord.timestamp();
+      getOffset().setTimestampOffset(currentRecord.timestamp);
     }
-    return currentRecord.record(latestCommittableTimestamp);
+    return currentRecord.record(offset);
   }
 
   private PendingRecord doExtractRecord() {
@@ -145,8 +143,8 @@ public class TimestampTableQuerier extends TimestampIncrementingTableQuerier {
         throw new DataException(e);
       }
     }
-    this.offset = criteria.extractValues(schemaMapping.schema(), record, offset);
-    Timestamp timestamp = offset.hasTimestampOffset() ? offset.getTimestampOffset() : null;
+    criteria.extractValues(schemaMapping.schema(), record, getOffset());
+    Timestamp timestamp = getOffset().hasTimestampOffset() ? getOffset().getTimestampOffset() : null;
     return new PendingRecord(partition, timestamp, topic, record.schema(), record);
   }
 
@@ -193,13 +191,12 @@ public class TimestampTableQuerier extends TimestampIncrementingTableQuerier {
     }
 
     /**
-     * @param offsetTimestamp the timestamp to use for the record's offset; may be null
+     * @param offset the timestamp to use for the record's offset; may be null
      * @return a {@link SourceRecord} whose source offset contains the provided timestamp
      */
-    public SourceRecord record(Timestamp offsetTimestamp) {
-      TimestampIncrementingOffset offset = new TimestampIncrementingOffset(offsetTimestamp, null);
+    public SourceRecord record(Map<String, Object> offset) {
       return new SourceRecord(
-          partition, offset.toMap(), topic, valueSchema, value
+          partition, offset, topic, valueSchema, value
       );
     }
   }

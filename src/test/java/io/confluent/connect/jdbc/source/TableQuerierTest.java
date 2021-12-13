@@ -105,8 +105,8 @@ public class TableQuerierTest {
                                    QueryMode.TABLE, 
                                    TABLE_NAME, 
                                    null, 
-                                   SUFFIX
-                               );
+                                   SUFFIX,
+            null);
       
     querier.createPreparedStatement(connectionMock);
 
@@ -120,8 +120,8 @@ public class TableQuerierTest {
                                    QueryMode.QUERY,
                                    QUERY, 
                                    null, 
-                                   SUFFIX
-                               );
+                                   SUFFIX,
+            null);
       
     querier.createPreparedStatement(connectionMock);
 
@@ -135,8 +135,8 @@ public class TableQuerierTest {
                                    QueryMode.QUERY, 
                                    QUERY, 
                                    null, 
-                                   "" /* default value */
-                               );
+                                   "", /* default value */
+            null);
       
     querier.createPreparedStatement(connectionMock);
 

@@ -649,4 +649,8 @@ public interface DatabaseDialect extends ConnectionProvider {
      */
     Object convert(ResultSet resultSet) throws SQLException, IOException;
   }
+
+  default boolean supportLock(){
+    return true;
+  }
 }

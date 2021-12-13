@@ -23,11 +23,14 @@ import io.confluent.connect.jdbc.util.ColumnDefinition;
 import io.confluent.connect.jdbc.util.ColumnId;
 import io.confluent.connect.jdbc.util.ConfigUtils;
 import io.confluent.connect.jdbc.util.ExitUtils;
+import io.confluent.connect.jdbc.util.ScriptUtils;
 import io.confluent.connect.jdbc.util.TableId;
 import io.confluent.connect.jdbc.util.Version;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTask;
@@ -160,6 +163,7 @@ public class JdbcSourceTask extends SourceTask {
                 = config.getBoolean(JdbcSourceTaskConfig.VALIDATE_NON_NULL_CONFIG);
         TimeZone timeZone = config.timeZone();
         String suffix = config.getString(JdbcSourceTaskConfig.QUERY_SUFFIX_CONFIG).trim();
+        String topicPrefix = config.topicPrefix();
 
         for (String tableOrQuery : tablesOrQuery) {
             final List<Map<String, String>> tablePartitionsToCheck;
@@ -202,8 +206,6 @@ public class JdbcSourceTask extends SourceTask {
             }
             offset = computeInitialOffset(tableOrQuery, offset, timeZone);
 
-            String topicPrefix = config.topicPrefix();
-
             if (mode.equals(JdbcSourceTaskConfig.MODE_BULK)) {
                 tableQueue.add(
                         new BulkTableQuerier(
@@ -211,8 +213,8 @@ public class JdbcSourceTask extends SourceTask {
                                 queryMode,
                                 tableOrQuery,
                                 topicPrefix,
-                                suffix
-                        )
+                                suffix,
+                                offset)
                 );
             } else if (mode.equals(JdbcSourceTaskConfig.MODE_INCREMENTING)) {
                 tableQueue.add(
@@ -293,7 +295,7 @@ public class JdbcSourceTask extends SourceTask {
         if (!(partitionOffset == null)) {
             return partitionOffset;
         } else {
-            Map<String, Object> initialPartitionOffset = null;
+            Map<String, Object> initialPartitionOffset = new HashMap<String, Object>();
             // no offsets found
             Long timestampInitial = config.getLong(JdbcSourceConnectorConfig.TIMESTAMP_INITIAL_CONFIG);
             if (timestampInitial != null) {
@@ -308,11 +310,17 @@ public class JdbcSourceTask extends SourceTask {
                         throw new ConnectException("Error while getting initial timestamp from database", e);
                     }
                 }
-                initialPartitionOffset = new HashMap<String, Object>();
                 initialPartitionOffset.put(TimestampIncrementingOffset.TIMESTAMP_FIELD, timestampInitial);
                 log.info("No offsets found for '{}', so using configured timestamp {}", tableOrQuery,
                         timestampInitial);
             }
+
+            initialPartitionOffset.putAll(config.getOffsetInitial());
+
+            if (StringUtils.isNotEmpty(config.getInitScript())) {
+                initialPartitionOffset = ScriptUtils.evalScript(config.getInitScript(), initialPartitionOffset);
+            }
+
             return initialPartitionOffset;
         }
     }
@@ -365,7 +373,7 @@ public class JdbcSourceTask extends SourceTask {
 
     void checkIfTaskDone() {
         if (ConfigUtils.isDkeTaskMode(this.config)) {
-            if (JdbcSourceConnector.taskCount.decrementAndGet() <= 0){
+            if (JdbcSourceConnector.taskCount.decrementAndGet() <= 0) {
                 // do something finally if needed
             }
             throw new ConnectException(ExitUtils.MSG_DONE);// force task stop
@@ -394,7 +402,7 @@ public class JdbcSourceTask extends SourceTask {
                 final long nextUpdate = querier.getLastUpdate()
                         + config.getInt(JdbcSourceTaskConfig.POLL_INTERVAL_MS_CONFIG);
                 final long now = time.milliseconds();
-                final long sleepMs = Math.min(nextUpdate - now, 100);
+                final long sleepMs = Math.min(nextUpdate - now, 1000);
 
                 if (sleepMs > 0) {
                     log.trace("Waiting {} ms to poll {} next", nextUpdate - now, querier.toString());
@@ -405,6 +413,10 @@ public class JdbcSourceTask extends SourceTask {
 
             final List<SourceRecord> results = new ArrayList<>();
             try {
+                if (StringUtils.isNotEmpty(config.getPreScript())) {
+                    ScriptUtils.evalScript(config.getPreScript(), querier.getOffset());
+                }
+
                 log.debug("Checking for next block of results from {}", querier.toString());
                 querier.maybeStartQuery(cachedConnectionProvider.getConnection());
 
@@ -418,6 +430,10 @@ public class JdbcSourceTask extends SourceTask {
                     // If we finished processing the results from the current query, we can reset and send
                     // the querier to the tail of the queue
                     resetAndRequeueHead(querier);
+                }
+
+                if (StringUtils.isNotEmpty(config.getPostScript())) {
+                    ScriptUtils.evalScript(config.getPostScript(), querier.getOffset());
                 }
 
                 if (results.isEmpty()) {
@@ -436,7 +452,9 @@ public class JdbcSourceTask extends SourceTask {
                     consecutiveEmptyResults.put(querier, 0);
                 }
 
+                extraceOffset(querier, results);
                 log.debug("Returning {} records for {}", results.size(), querier);
+
                 return results;
             } catch (SQLNonTransientException sqle) {
                 log.error("Non-transient SQL exception while running query for table: {}",
@@ -460,6 +478,19 @@ public class JdbcSourceTask extends SourceTask {
 
         shutdown();
         return null;
+    }
+
+    protected void extraceOffset(TableQuerier querier, List<SourceRecord> records) {
+        Map<String, ?> offsetExtract = config.getOffsetExtract();
+        if (!offsetExtract.isEmpty() && !records.isEmpty()) {
+            records.stream().skip(records.size() - 1).forEach(record -> {
+                querier.getOffset().putAll(offsetExtract.entrySet().stream()
+                        .collect(Collectors.toMap(
+                                e -> e.getKey(),
+                                e -> ((Struct) record.value()).get(String.valueOf(e.getValue())))
+                        ));
+            });
+        }
     }
 
     private void shutdown() {

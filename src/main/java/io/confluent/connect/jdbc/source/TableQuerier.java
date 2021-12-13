@@ -23,6 +23,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Map;
 
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.util.ExpressionBuilder;
@@ -40,6 +41,7 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
   }
 
   private final Logger log = LoggerFactory.getLogger(TableQuerier.class);
+  public static final String SUFFIX_QUERY = "query";
 
   protected final DatabaseDialect dialect;
   protected final QueryMode mode;
@@ -47,6 +49,7 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
   protected final String topicPrefix;
   protected final TableId tableId;
   protected final String suffix;
+  protected final Map<String, Object> offset;
 
   // Mutable state
 
@@ -55,15 +58,14 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
   protected PreparedStatement stmt;
   protected ResultSet resultSet;
   protected SchemaMapping schemaMapping;
-  private String loggedQueryString;
 
   public TableQuerier(
-      DatabaseDialect dialect,
-      QueryMode mode,
-      String nameOrQuery,
-      String topicPrefix,
-      String suffix
-  ) {
+          DatabaseDialect dialect,
+          QueryMode mode,
+          String nameOrQuery,
+          String topicPrefix,
+          String suffix,
+          Map<String, Object> offset) {
     this.dialect = dialect;
     this.mode = mode;
     this.tableId = mode.equals(QueryMode.TABLE) ? dialect.parseTableIdentifier(nameOrQuery) : null;
@@ -71,6 +73,7 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
     this.topicPrefix = topicPrefix;
     this.lastUpdate = 0;
     this.suffix = suffix;
+    this.offset = offset;
   }
 
   public long getLastUpdate() {
@@ -83,6 +86,10 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
     }
     createPreparedStatement(db);
     return stmt;
+  }
+
+  public Map<String, Object> getOffset() {
+    return offset;
   }
 
   protected abstract void createPreparedStatement(Connection db) throws SQLException;
@@ -122,7 +129,7 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
   private void releaseLocksQuietly() {
     if (db != null) {
       try {
-        db.commit();
+        if (dialect.supportLock()) db.commit();
       } catch (SQLException e) {
         log.warn("Error while committing read transaction, database locks may still be held", e);
       }
@@ -158,14 +165,6 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
     }  
   }
   
-  protected void recordQuery(String query) {
-    if (query != null && !query.equals(loggedQueryString)) {
-      // For usability, log the statement at INFO level only when it changes
-      log.info("Begin using SQL query: {}", query);
-      loggedQueryString = query;
-    }
-  }
-
   @Override
   public int compareTo(TableQuerier other) {
     if (this.lastUpdate < other.lastUpdate) {

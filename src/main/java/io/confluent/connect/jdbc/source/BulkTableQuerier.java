@@ -15,6 +15,7 @@
 
 package io.confluent.connect.jdbc.source;
 
+import io.confluent.connect.jdbc.util.FmUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.DataException;
@@ -39,14 +40,16 @@ import io.confluent.connect.jdbc.util.ExpressionBuilder;
 public class BulkTableQuerier extends TableQuerier {
   private static final Logger log = LoggerFactory.getLogger(BulkTableQuerier.class);
 
+
+
   public BulkTableQuerier(
-      DatabaseDialect dialect,
-      QueryMode mode,
-      String name,
-      String topicPrefix,
-      String suffix
-  ) {
-    super(dialect, mode, name, topicPrefix, suffix);
+          DatabaseDialect dialect,
+          QueryMode mode,
+          String name,
+          String topicPrefix,
+          String suffix,
+          Map<String, Object> offset) {
+    super(dialect, mode, name, topicPrefix, suffix, offset);
   }
 
   @Override
@@ -67,10 +70,9 @@ public class BulkTableQuerier extends TableQuerier {
 
     addSuffixIfPresent(builder);
     
-    String queryStr = builder.toString();
+    String queryStr = FmUtils.eval(builder.toString(), offset);
 
-    recordQuery(queryStr);
-    log.debug("{} prepared SQL query: {}", this, queryStr);
+    log.info("{} prepared SQL query: {}", this, queryStr);
     stmt = dialect.createPreparedStatement(db, queryStr);
   }
 
@@ -106,12 +108,12 @@ public class BulkTableQuerier extends TableQuerier {
         partition = Collections.singletonMap(JdbcSourceConnectorConstants.QUERY_NAME_KEY,
                                              JdbcSourceConnectorConstants.QUERY_NAME_VALUE
         );
-        topic = topicPrefix;
+        topic = topicPrefix + SUFFIX_QUERY;
         break;
       default:
         throw new ConnectException("Unexpected query mode: " + mode);
     }
-    return new SourceRecord(partition, null, topic, record.schema(), record);
+    return new SourceRecord(partition, offset, topic, record.schema(), record);
   }
 
   @Override

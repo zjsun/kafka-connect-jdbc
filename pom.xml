@@ -65,8 +65,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.package.home>target/${project.artifactId}-${project.version}-package</project.package.home>
         <maven.release.plugin.version>2.5.3</maven.release.plugin.version>
-
+        <lombok.version>1.18.20</lombok.version>
         <kafka.version>2.7.1</kafka.version>
+        <freemarker.version>2.3.31</freemarker.version>
 
         <!-- datav -->
         <skipTests>true</skipTests>
@@ -102,6 +103,17 @@
         <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>connect-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.freemarker</groupId>
+            <artifactId>freemarker</artifactId>
+            <version>${freemarker.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -299,15 +311,23 @@
             </plugin>
 
             <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <inherited>true</inherited>
-                <configuration>
-                    <compilerArgs>
-                        <arg>-Xlint:all</arg>
-                        <arg>-Werror</arg>
-                    </compilerArgs>
-                </configuration>
+<!--                <configuration>-->
+<!--                    <compilerArgs>-->
+<!--                        <arg>-Xlint:all</arg>-->
+<!--                        <arg>-Werror</arg>-->
+<!--                    </compilerArgs>-->
+<!--                </configuration>-->
             </plugin>
             <plugin>
                 <groupId>io.confluent</groupId>

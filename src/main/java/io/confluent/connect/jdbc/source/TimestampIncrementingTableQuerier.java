@@ -15,6 +15,7 @@
 
 package io.confluent.connect.jdbc.source;
 
+import io.confluent.connect.jdbc.util.FmUtils;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.DataException;
@@ -65,7 +66,6 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
   );
 
   protected final List<String> timestampColumnNames;
-  protected TimestampIncrementingOffset offset;
   protected TimestampIncrementingCriteria criteria;
   protected final Map<String, String> partition;
   protected final String topic;
@@ -80,12 +80,11 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
                                            String incrementingColumnName,
                                            Map<String, Object> offsetMap, Long timestampDelay,
                                            TimeZone timeZone, String suffix) {
-    super(dialect, mode, name, topicPrefix, suffix);
+    super(dialect, mode, name, topicPrefix, suffix, TimestampIncrementingOffset.fromMap(offsetMap));
     this.incrementingColumnName = incrementingColumnName;
     this.timestampColumnNames = timestampColumnNames != null
         ? timestampColumnNames : Collections.emptyList();
     this.timestampDelay = timestampDelay;
-    this.offset = TimestampIncrementingOffset.fromMap(offsetMap);
 
     this.timestampColumns = new ArrayList<>();
     for (String timestampColumn : this.timestampColumnNames) {
@@ -103,13 +102,18 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
       case QUERY:
         partition = Collections.singletonMap(JdbcSourceConnectorConstants.QUERY_NAME_KEY,
             JdbcSourceConnectorConstants.QUERY_NAME_VALUE);
-        topic = topicPrefix;
+        topic = topicPrefix + SUFFIX_QUERY;
         break;
       default:
         throw new ConnectException("Unexpected query mode: " + mode);
     }
 
     this.timeZone = timeZone;
+  }
+
+  @Override
+  public TimestampIncrementingOffset getOffset() {
+    return (TimestampIncrementingOffset) super.getOffset();
   }
 
   /**
@@ -145,9 +149,9 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
 
     addSuffixIfPresent(builder);
     
-    String queryString = builder.toString();
-    recordQuery(queryString);
-    log.debug("{} prepared SQL query: {}", this, queryString);
+    String queryString = FmUtils.eval(builder.toString(), offset);
+
+    log.info("{} prepared SQL query: {}", this, queryString);
     stmt = dialect.createPreparedStatement(db, queryString);
   }
 
@@ -214,13 +218,13 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
         throw new DataException(e);
       }
     }
-    offset = criteria.extractValues(schemaMapping.schema(), record, offset);
-    return new SourceRecord(partition, offset.toMap(), topic, record.schema(), record);
+    criteria.extractValues(schemaMapping.schema(), record, getOffset());
+    return new SourceRecord(partition, getOffset(), topic, record.schema(), record);
   }
 
   @Override
   public Timestamp beginTimestampValue() {
-    return offset.getTimestampOffset();
+    return getOffset().getTimestampOffset();
   }
 
   @Override
@@ -234,7 +238,7 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
 
   @Override
   public Long lastIncrementedValue() {
-    return offset.getIncrementingOffset();
+    return getOffset().getIncrementingOffset();
   }
 
   @Override
