@@ -17,6 +17,7 @@ package io.confluent.connect.jdbc.source;
 
 import com.datav.scdf.kafka.common.ConfigUtils;
 import com.datav.scdf.kafka.common.ScriptUtils;
+import com.datav.scdf.kafka.common.TaskUtils;
 import io.confluent.connect.jdbc.JdbcSourceConnector;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
@@ -373,21 +374,12 @@ public class JdbcSourceTask extends SourceTask {
         }
     }
 
-    void checkIfTaskDone() {
-        if (ConfigUtils.isDkeTaskMode(this.config)) {
-            if (JdbcSourceConnector.taskCount.decrementAndGet() <= 0) {
-                // do something finally if needed
-            }
-            throw new ConnectException(ConfigUtils.MSG_DONE);// force task stop
-        }
-    }
-
     @Override
     public List<SourceRecord> poll() throws InterruptedException {
         log.trace("{} Polling for new data");
 
         // datav fix
-        if (tableQueue.isEmpty()) checkIfTaskDone();
+        if (tableQueue.isEmpty()) TaskUtils.taskDone(config, JdbcSourceConnector.taskCount, null, false);
 
         Map<TableQuerier, Integer> consecutiveEmptyResults = tableQueue.stream().collect(
                 Collectors.toMap(Function.identity(), (q) -> 0));

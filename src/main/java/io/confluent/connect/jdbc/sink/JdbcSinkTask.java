@@ -16,6 +16,7 @@
 package io.confluent.connect.jdbc.sink;
 
 import com.datav.scdf.kafka.common.ConfigUtils;
+import com.datav.scdf.kafka.common.TaskUtils;
 import io.confluent.connect.jdbc.JdbcSinkConnector;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
@@ -74,11 +75,10 @@ public class JdbcSinkTask extends SinkTask {
 
     void checkIfTaskDone() {
         if (ConfigUtils.isDkeTaskMode(this.config) && countDown.decrementAndGet() <= 0) {
-            if (JdbcSinkConnector.taskCount.decrementAndGet() <= 0) {
+            TaskUtils.taskDone(this.config, JdbcSinkConnector.taskCount, () -> {
                 log.info("All tasks done and parepare clean up ...");
                 writer.cleanup();
-            }
-            throw new ConnectException(ConfigUtils.MSG_DONE); // force task stop
+            }, true);
         }
     }
 
