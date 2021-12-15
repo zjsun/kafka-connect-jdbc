@@ -42,6 +42,8 @@ import static java.util.stream.IntStream.rangeClosed;
 public class ConfigUtils {
     private static final Logger log = LoggerFactory.getLogger(ConfigUtils.class);
 
+    public static final String MSG_DONE = "[此异常为正常退出，请忽略]";
+
     /**
      * Get the connector's name from the configuration.
      *

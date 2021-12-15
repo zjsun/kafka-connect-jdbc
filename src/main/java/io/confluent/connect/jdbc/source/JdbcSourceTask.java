@@ -22,7 +22,6 @@ import io.confluent.connect.jdbc.util.CachedConnectionProvider;
 import io.confluent.connect.jdbc.util.ColumnDefinition;
 import io.confluent.connect.jdbc.util.ColumnId;
 import io.confluent.connect.jdbc.util.ConfigUtils;
-import io.confluent.connect.jdbc.util.ExitUtils;
 import io.confluent.connect.jdbc.util.ScriptUtils;
 import io.confluent.connect.jdbc.util.TableId;
 import io.confluent.connect.jdbc.util.Version;
@@ -376,7 +375,7 @@ public class JdbcSourceTask extends SourceTask {
             if (JdbcSourceConnector.taskCount.decrementAndGet() <= 0) {
                 // do something finally if needed
             }
-            throw new ConnectException(ExitUtils.MSG_DONE);// force task stop
+            throw new ConnectException(ConfigUtils.MSG_DONE);// force task stop
         }
     }
 

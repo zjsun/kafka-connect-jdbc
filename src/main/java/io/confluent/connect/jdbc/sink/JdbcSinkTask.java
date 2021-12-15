@@ -19,7 +19,6 @@ import io.confluent.connect.jdbc.JdbcSinkConnector;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
 import io.confluent.connect.jdbc.util.ConfigUtils;
-import io.confluent.connect.jdbc.util.ExitUtils;
 import io.confluent.connect.jdbc.util.Version;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -79,7 +78,7 @@ public class JdbcSinkTask extends SinkTask {
                 log.info("All tasks done and parepare clean up ...");
                 writer.cleanup();
             }
-            throw new ConnectException(ExitUtils.MSG_DONE); // force task stop
+            throw new ConnectException(ConfigUtils.MSG_DONE); // force task stop
         }
     }
 
