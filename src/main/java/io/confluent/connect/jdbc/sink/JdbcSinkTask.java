@@ -15,10 +15,10 @@
 
 package io.confluent.connect.jdbc.sink;
 
+import com.datav.scdf.kafka.common.ConfigUtils;
 import io.confluent.connect.jdbc.JdbcSinkConnector;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
-import io.confluent.connect.jdbc.util.ConfigUtils;
 import io.confluent.connect.jdbc.util.Version;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;

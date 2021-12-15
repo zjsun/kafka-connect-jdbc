@@ -27,9 +27,9 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
 
+import com.datav.scdf.kafka.common.ConfigUtils;
 import io.confluent.connect.jdbc.source.JdbcSourceConnectorConfig;
 
-import io.confluent.connect.jdbc.util.ConfigUtils;
 import io.confluent.connect.jdbc.util.DatabaseDialectRecommender;
 import io.confluent.connect.jdbc.util.DeleteEnabledRecommender;
 import io.confluent.connect.jdbc.util.EnumRecommender;

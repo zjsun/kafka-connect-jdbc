@@ -15,14 +15,14 @@
 
 package io.confluent.connect.jdbc.source;
 
+import com.datav.scdf.kafka.common.ConfigUtils;
+import com.datav.scdf.kafka.common.ScriptUtils;
 import io.confluent.connect.jdbc.JdbcSourceConnector;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
 import io.confluent.connect.jdbc.util.CachedConnectionProvider;
 import io.confluent.connect.jdbc.util.ColumnDefinition;
 import io.confluent.connect.jdbc.util.ColumnId;
-import io.confluent.connect.jdbc.util.ConfigUtils;
-import io.confluent.connect.jdbc.util.ScriptUtils;
 import io.confluent.connect.jdbc.util.TableId;
 import io.confluent.connect.jdbc.util.Version;
 import org.apache.commons.lang3.StringUtils;
@@ -148,8 +148,11 @@ public class JdbcSourceTask extends SourceTask {
                 default:
                     throw new ConnectException("Unknown query mode: " + queryMode);
             }
-            offsets = context.offsetStorageReader().offsets(partitions);
-            log.trace("The partition offsets are {}", offsets);
+
+            if (!ConfigUtils.isDkeTaskMode(config)) { // 仅在stream中需要读取offset
+                offsets = context.offsetStorageReader().offsets(partitions);
+                log.trace("The partition offsets are {}", offsets);
+            }
         }
 
         String incrementingColumn
