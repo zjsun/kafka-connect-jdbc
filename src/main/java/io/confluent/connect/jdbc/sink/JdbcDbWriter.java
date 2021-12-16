@@ -15,6 +15,7 @@
 
 package io.confluent.connect.jdbc.sink;
 
+import com.datav.scdf.kafka.common.ConfigUtils;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.util.CachedConnectionProvider;
 import io.confluent.connect.jdbc.util.ColumnId;
@@ -45,7 +46,7 @@ public class JdbcDbWriter {
     private final DbStructure dbStructure;
     final CachedConnectionProvider cachedConnectionProvider;
 
-    public static final String DKE_OP_ID = "DKE_OP_ID"; // 时间戳字段
+    public static final String DKE_OP_ID = ConfigUtils.DKE_OP_ID; // 时间戳字段
     private long latestOpId = 0; //最新时间戳（DKE_OP_ID字段值）
     private final Set<TableId> allTables = new HashSet<>(); // 当前实例处理过的所有表
     private final Set<String> allTopics = new HashSet<>(); // 当前实例处理过的所有topic
