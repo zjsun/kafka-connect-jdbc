@@ -21,6 +21,7 @@ import io.confluent.connect.jdbc.util.CachedConnectionProvider;
 import io.confluent.connect.jdbc.util.ColumnId;
 import io.confluent.connect.jdbc.util.TableId;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.sink.SinkRecord;
@@ -157,7 +158,8 @@ public class JdbcDbWriter {
 
     void extractOpId(SinkRecord record) {
         Struct struct = (Struct) record.value();
-        if (record.valueSchema().field(DKE_OP_ID) != null && struct != null) {
+        Schema schema = record.valueSchema();
+        if (struct != null && schema != null && schema.field(DKE_OP_ID) != null) {
             Long opId = struct.getInt64(DKE_OP_ID);
             if (opId != null && opId.longValue() > latestOpId) {
                 latestOpId = opId.longValue();
