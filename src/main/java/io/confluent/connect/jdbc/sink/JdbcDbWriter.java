@@ -97,6 +97,7 @@ public class JdbcDbWriter {
                 }
                 buffer.add(record);
             }
+
             for (Map.Entry<TableId, BufferedRecords> entry : bufferByTable.entrySet()) {
                 TableId tableId = entry.getKey();
                 BufferedRecords buffer = entry.getValue();
@@ -128,7 +129,7 @@ public class JdbcDbWriter {
         }
 
         // 2) 删除记录
-        if (config.deleteEnabled && !allTables.isEmpty() && latestOpId > 0) {
+        if (!allTables.isEmpty() && latestOpId > 0) {
             log.info("Cleaning up tables: " + StringUtils.join(allTables));
             final Connection connection = cachedConnectionProvider.getConnection();
             try {

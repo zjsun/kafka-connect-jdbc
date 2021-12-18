@@ -104,6 +104,7 @@ public class PreparedStatementBinder implements StatementBinder {
           break;
 
         case UPDATE:
+        case UPDATE_INSERT:
           index = bindNonKeyFields(record, valueStruct, index);
           bindKeyFields(record, index);
           break;

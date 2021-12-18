@@ -15,6 +15,15 @@
 
 package io.confluent.connect.jdbc.sink;
 
+import io.confluent.connect.jdbc.dialect.DatabaseDialect;
+import io.confluent.connect.jdbc.dialect.DatabaseDialect.StatementBinder;
+import io.confluent.connect.jdbc.sink.metadata.FieldsMetadata;
+import io.confluent.connect.jdbc.sink.metadata.SchemaPair;
+import io.confluent.connect.jdbc.util.ColumnId;
+import io.confluent.connect.jdbc.util.TableId;
+import lombok.SneakyThrows;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.sink.SinkRecord;
@@ -32,313 +41,389 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import io.confluent.connect.jdbc.dialect.DatabaseDialect;
-import io.confluent.connect.jdbc.dialect.DatabaseDialect.StatementBinder;
-import io.confluent.connect.jdbc.sink.metadata.FieldsMetadata;
-import io.confluent.connect.jdbc.sink.metadata.SchemaPair;
-import io.confluent.connect.jdbc.util.ColumnId;
-import io.confluent.connect.jdbc.util.TableId;
-
 import static io.confluent.connect.jdbc.sink.JdbcSinkConfig.InsertMode.INSERT;
+import static io.confluent.connect.jdbc.sink.JdbcSinkConfig.InsertMode.UPDATE_INSERT;
 import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
 public class BufferedRecords {
-  private static final Logger log = LoggerFactory.getLogger(BufferedRecords.class);
+    private static final Logger log = LoggerFactory.getLogger(BufferedRecords.class);
 
-  private final TableId tableId;
-  private final JdbcSinkConfig config;
-  private final DatabaseDialect dbDialect;
-  private final DbStructure dbStructure;
-  private final Connection connection;
+    private final TableId tableId;
+    private final JdbcSinkConfig config;
+    private final DatabaseDialect dbDialect;
+    private final DbStructure dbStructure;
+    private final Connection connection;
 
-  private List<SinkRecord> records = new ArrayList<>();
-  private Schema keySchema;
-  private Schema valueSchema;
-  private RecordValidator recordValidator;
-  private FieldsMetadata fieldsMetadata;
-  private PreparedStatement updatePreparedStatement;
-  private PreparedStatement deletePreparedStatement;
-  private StatementBinder updateStatementBinder;
-  private StatementBinder deleteStatementBinder;
-  private boolean deletesInBatch = false;
+    private List<SinkRecord> records = new ArrayList<>();
+    private List<SinkRecord> missingRecords = new ArrayList<>();
+    private Schema keySchema;
+    private Schema valueSchema;
+    private RecordValidator recordValidator;
+    private FieldsMetadata fieldsMetadata;
+    private PreparedStatement upsertPreparedStatement;
+    private PreparedStatement deletePreparedStatement;
+    private PreparedStatement missingInsertPreparedStatement;
+    private StatementBinder upsertStatementBinder;
+    private StatementBinder deleteStatementBinder;
+    private StatementBinder missingInsertStatementBinder;
+    private boolean deletesInBatch = false;
 
-  public BufferedRecords(
-      JdbcSinkConfig config,
-      TableId tableId,
-      DatabaseDialect dbDialect,
-      DbStructure dbStructure,
-      Connection connection
-  ) {
-    this.tableId = tableId;
-    this.config = config;
-    this.dbDialect = dbDialect;
-    this.dbStructure = dbStructure;
-    this.connection = connection;
-    this.recordValidator = RecordValidator.create(config);
-  }
-
-  public List<SinkRecord> add(SinkRecord record) throws SQLException {
-    recordValidator.validate(record);
-    final List<SinkRecord> flushed = new ArrayList<>();
-
-    boolean schemaChanged = false;
-    if (!Objects.equals(keySchema, record.keySchema())) {
-      keySchema = record.keySchema();
-      schemaChanged = true;
-    }
-    if (isNull(record.valueSchema())) {
-      // For deletes, value and optionally value schema come in as null.
-      // We don't want to treat this as a schema change if key schemas is the same
-      // otherwise we flush unnecessarily.
-      if (config.deleteEnabled) {
-        deletesInBatch = true;
-      }
-    } else if (Objects.equals(valueSchema, record.valueSchema())) {
-      if (config.deleteEnabled && deletesInBatch) {
-        // flush so an insert after a delete of same record isn't lost
-        flushed.addAll(flush());
-      }
-    } else {
-      // value schema is not null and has changed. This is a real schema change.
-      valueSchema = record.valueSchema();
-      schemaChanged = true;
-    }
-    if (schemaChanged || updateStatementBinder == null) {
-      // Each batch needs to have the same schemas, so get the buffered records out
-      flushed.addAll(flush());
-
-      // re-initialize everything that depends on the record schema
-      final SchemaPair schemaPair = new SchemaPair(
-          record.keySchema(),
-          record.valueSchema()
-      );
-      fieldsMetadata = FieldsMetadata.extract(
-          tableId.tableName(),
-          config.pkMode,
-          config.pkFields,
-          config.fieldsWhitelist,
-          schemaPair
-      );
-      dbStructure.createOrAmendIfNecessary(
-          config,
-          connection,
-          tableId,
-          fieldsMetadata
-      );
-      final String insertSql = getInsertSql();
-      final String deleteSql = getDeleteSql();
-      log.debug(
-          "{} sql: {} deleteSql: {} meta: {}",
-          config.insertMode,
-          insertSql,
-          deleteSql,
-          fieldsMetadata
-      );
-      close();
-      updatePreparedStatement = dbDialect.createPreparedStatement(connection, insertSql);
-      updateStatementBinder = dbDialect.statementBinder(
-          updatePreparedStatement,
-          config.pkMode,
-          schemaPair,
-          fieldsMetadata,
-          dbStructure.tableDefinition(connection, tableId),
-          config.insertMode
-      );
-      if (config.deleteEnabled && nonNull(deleteSql)) {
-        deletePreparedStatement = dbDialect.createPreparedStatement(connection, deleteSql);
-        deleteStatementBinder = dbDialect.statementBinder(
-            deletePreparedStatement,
-            config.pkMode,
-            schemaPair,
-            fieldsMetadata,
-            dbStructure.tableDefinition(connection, tableId),
-            config.insertMode
-        );
-      }
-    }
-    
-    // set deletesInBatch if schema value is not null
-    if (isNull(record.value()) && config.deleteEnabled) {
-      deletesInBatch = true;
+    public BufferedRecords(
+            JdbcSinkConfig config,
+            TableId tableId,
+            DatabaseDialect dbDialect,
+            DbStructure dbStructure,
+            Connection connection
+    ) {
+        this.tableId = tableId;
+        this.config = config;
+        this.dbDialect = dbDialect;
+        this.dbStructure = dbStructure;
+        this.connection = connection;
+        this.recordValidator = RecordValidator.create(config);
     }
 
-    records.add(record);
+    public List<SinkRecord> add(SinkRecord record) throws SQLException {
+        recordValidator.validate(record);
+        final List<SinkRecord> flushed = new ArrayList<>();
 
-    if (records.size() >= config.batchSize) {
-      flushed.addAll(flush());
-    }
-    return flushed;
-  }
-
-  public List<SinkRecord> flush() throws SQLException {
-    if (records.isEmpty()) {
-      log.debug("Records is empty");
-      return new ArrayList<>();
-    }
-    log.debug("Flushing {} buffered records", records.size());
-    for (SinkRecord record : records) {
-      if (isNull(record.value()) && nonNull(deleteStatementBinder)) {
-        deleteStatementBinder.bindRecord(record);
-      } else {
-        updateStatementBinder.bindRecord(record);
-      }
-    }
-    Optional<Long> totalUpdateCount = executeUpdates();
-    long totalDeleteCount = executeDeletes();
-
-    final long expectedCount = updateRecordCount();
-    log.trace("{} records:{} resulting in totalUpdateCount:{} totalDeleteCount:{}",
-        config.insertMode, records.size(), totalUpdateCount, totalDeleteCount
-    );
-    if (totalUpdateCount.filter(total -> total != expectedCount).isPresent()
-        && config.insertMode == INSERT) {
-      throw new ConnectException(String.format(
-          "Update count (%d) did not sum up to total number of records inserted (%d)",
-          totalUpdateCount.get(),
-          expectedCount
-      ));
-    }
-    if (!totalUpdateCount.isPresent()) {
-      log.info(
-          "{} records:{} , but no count of the number of rows it affected is available",
-          config.insertMode,
-          records.size()
-      );
-    }
-
-    final List<SinkRecord> flushedRecords = records;
-    records = new ArrayList<>();
-    deletesInBatch = false;
-    return flushedRecords;
-  }
-
-  /**
-   * @return an optional count of all updated rows or an empty optional if no info is available
-   */
-  private Optional<Long> executeUpdates() throws SQLException {
-    Optional<Long> count = Optional.empty();
-    for (int updateCount : updatePreparedStatement.executeBatch()) {
-      if (updateCount != Statement.SUCCESS_NO_INFO) {
-        count = count.isPresent()
-            ? count.map(total -> total + updateCount)
-            : Optional.of((long) updateCount);
-      }
-    }
-    return count;
-  }
-
-  private long executeDeletes() throws SQLException {
-    long totalDeleteCount = 0;
-    if (nonNull(deletePreparedStatement)) {
-      for (int updateCount : deletePreparedStatement.executeBatch()) {
-        if (updateCount != Statement.SUCCESS_NO_INFO) {
-          totalDeleteCount += updateCount;
+        boolean schemaChanged = false;
+        if (!Objects.equals(keySchema, record.keySchema())) { //主键schema更新
+            keySchema = record.keySchema();
+            schemaChanged = true;
         }
-      }
-    }
-    return totalDeleteCount;
-  }
 
-  private long updateRecordCount() {
-    return records
-        .stream()
-        // ignore deletes
-        .filter(record -> nonNull(record.value()) || !config.deleteEnabled)
-        .count();
-  }
-
-  public void close() throws SQLException {
-    log.debug(
-        "Closing BufferedRecords with updatePreparedStatement: {} deletePreparedStatement: {}",
-        updatePreparedStatement,
-        deletePreparedStatement
-    );
-    if (nonNull(updatePreparedStatement)) {
-      updatePreparedStatement.close();
-      updatePreparedStatement = null;
-    }
-    if (nonNull(deletePreparedStatement)) {
-      deletePreparedStatement.close();
-      deletePreparedStatement = null;
-    }
-  }
-
-  private String getInsertSql() throws SQLException {
-    switch (config.insertMode) {
-      case INSERT:
-        return dbDialect.buildInsertStatement(
-            tableId,
-            asColumns(fieldsMetadata.keyFieldNames),
-            asColumns(fieldsMetadata.nonKeyFieldNames),
-            dbStructure.tableDefinition(connection, tableId)
-        );
-      case UPSERT:
-        if (fieldsMetadata.keyFieldNames.isEmpty()) {
-          throw new ConnectException(String.format(
-              "Write to table '%s' in UPSERT mode requires key field names to be known, check the"
-                  + " primary key configuration",
-              tableId
-          ));
+        if (isNull(record.valueSchema())) { // 空记录需要删除
+            // For deletes, value and optionally value schema come in as null.
+            // We don't want to treat this as a schema change if key schemas is the same
+            // otherwise we flush unnecessarily.
+            if (config.deleteEnabled) {
+                deletesInBatch = true;
+            }
+        } else if (Objects.equals(valueSchema, record.valueSchema())) { // 数据schema无变化，若有删除，则先提交执行删除
+            if (config.deleteEnabled && deletesInBatch) {
+                // flush so an insert after a delete of same record isn't lost
+                flushed.addAll(flush());
+            }
+        } else { // 数据schema有变化
+            // value schema is not null and has changed. This is a real schema change.
+            valueSchema = record.valueSchema();
+            schemaChanged = true;
         }
-        try {
-          return dbDialect.buildUpsertQueryStatement(
-              tableId,
-              asColumns(fieldsMetadata.keyFieldNames),
-              asColumns(fieldsMetadata.nonKeyFieldNames),
-              dbStructure.tableDefinition(connection, tableId)
-          );
-        } catch (UnsupportedOperationException e) {
-          throw new ConnectException(String.format(
-              "Write to table '%s' in UPSERT mode is not supported with the %s dialect.",
-              tableId,
-              dbDialect.name()
-          ));
-        }
-      case UPDATE:
-        return dbDialect.buildUpdateStatement(
-            tableId,
-            asColumns(fieldsMetadata.keyFieldNames),
-            asColumns(fieldsMetadata.nonKeyFieldNames),
-            dbStructure.tableDefinition(connection, tableId)
-        );
-      default:
-        throw new ConnectException("Invalid insert mode");
-    }
-  }
 
-  private String getDeleteSql() {
-    String sql = null;
-    if (config.deleteEnabled) {
-      switch (config.pkMode) {
-        case RECORD_KEY:
-          if (fieldsMetadata.keyFieldNames.isEmpty()) {
-            throw new ConnectException("Require primary keys to support delete");
-          }
-          try {
-            sql = dbDialect.buildDeleteStatement(
-                tableId,
-                asColumns(fieldsMetadata.keyFieldNames)
+        // schema有变化，先提交更新之前的记录，然后准备好新的statement实例
+        if (schemaChanged || upsertStatementBinder == null) {
+            // Each batch needs to have the same schemas, so get the buffered records out
+            flushed.addAll(flush());
+
+            // re-initialize everything that depends on the record schema
+            final SchemaPair schemaPair = new SchemaPair(
+                    record.keySchema(),
+                    record.valueSchema()
             );
-          } catch (UnsupportedOperationException e) {
-            throw new ConnectException(String.format(
-                "Deletes to table '%s' are not supported with the %s dialect.",
-                tableId,
-                dbDialect.name()
-            ));
-          }
-          break;
+            fieldsMetadata = FieldsMetadata.extract(
+                    tableId.tableName(),
+                    config.pkMode,
+                    config.pkFields,
+                    config.fieldsWhitelist,
+                    schemaPair
+            );
+            dbStructure.createOrAmendIfNecessary(
+                    config,
+                    connection,
+                    tableId,
+                    fieldsMetadata
+            );
 
-        default:
-          throw new ConnectException("Deletes are only supported for pk.mode record_key");
-      }
+            // 清理
+            close();
+
+            // 构造
+            Pair<PreparedStatement, StatementBinder> pair = createStatementAndBinder(config.insertMode, schemaPair);
+            upsertPreparedStatement = pair.getLeft();
+            upsertStatementBinder = pair.getRight();
+
+            pair = createStatementAndBinder(INSERT, schemaPair);
+            missingInsertPreparedStatement = pair.getLeft();
+            missingInsertStatementBinder = pair.getRight();
+
+            pair = createStatementAndBinder(null, schemaPair);
+            if (config.deleteEnabled && nonNull(pair)) {
+                deletePreparedStatement = pair.getLeft();
+                deleteStatementBinder = pair.getRight();
+            }
+        }
+
+        // set deletesInBatch if schema value is not null
+        if (isNull(record.value()) && config.deleteEnabled) { // 标记有删除
+            deletesInBatch = true;
+        }
+
+        records.add(record);
+
+        // 缓存超出批次大小，则提交更新
+        if (records.size() >= config.batchSize) {
+            flushed.addAll(flush());
+        }
+
+        if (config.insertMode == UPDATE_INSERT && records.size() > 0){
+            flushed.addAll(flush());
+        }
+
+        return flushed;
     }
-    return sql;
-  }
 
-  private Collection<ColumnId> asColumns(Collection<String> names) {
-    return names.stream()
-        .map(name -> new ColumnId(tableId, name))
-        .collect(Collectors.toList());
-  }
+    @SneakyThrows
+    protected Pair<PreparedStatement, StatementBinder> createStatementAndBinder(JdbcSinkConfig.InsertMode mode, SchemaPair schemaPair) {
+        String sql = mode == null ? getDeleteSql() : getUpsertSql(mode);
+        log.info("Create {} sql: {}", mode == null ? "DELETE" : mode, sql);
+        if (StringUtils.isEmpty(sql)) return null;
+
+        PreparedStatement statement = dbDialect.createPreparedStatement(connection, sql);
+        StatementBinder binder = dbDialect.statementBinder(
+                statement,
+                config.pkMode,
+                schemaPair,
+                fieldsMetadata,
+                dbStructure.tableDefinition(connection, tableId),
+                mode == null ? config.insertMode : mode
+        );
+
+        return Pair.of(statement, binder);
+    }
+
+    public List<SinkRecord> flush() throws SQLException {
+        if (records.isEmpty()) {
+            log.debug("Records is empty");
+            return new ArrayList<>();
+        }
+        log.debug("Flushing {} buffered records", records.size());
+        for (SinkRecord record : records) {
+            if (isNull(record.value()) && nonNull(deleteStatementBinder)) {
+                deleteStatementBinder.bindRecord(record);
+            } else {
+                upsertStatementBinder.bindRecord(record);
+            }
+        }
+
+        Optional<Long> totalUpsertCount = executeUpdates();
+        final long expectedCount = expectedUpdateCount();
+        if (totalUpsertCount.filter(total -> total != expectedCount).isPresent()) {
+            if (config.insertMode == INSERT) {
+                throw new ConnectException(String.format(
+                        "实际新增数：(%d)，小于当前接收记录数：(%d)",
+                        totalUpsertCount.get(),
+                        expectedCount
+                ));
+            } else if (config.insertMode == UPDATE_INSERT) {
+                if (totalUpsertCount.get() > expectedCount) {
+                    throw new ConnectException(String.format(
+                            "实际更新数：(%d)，大于当前接收记录数：(%d)，请检查逻辑主键（pk-fields）设置",
+                            totalUpsertCount.get(),
+                            expectedCount
+                    ));
+                } else {
+                    long totalInsertCount = executeMissingInsert();
+                    totalUpsertCount = totalUpsertCount.map(count -> count + totalInsertCount);
+                    if (totalUpsertCount.get() != expectedCount) {
+                        throw new ConnectException(String.format(
+                                "实际新增/更新数：(%d)，小于当前接收记录数：(%d)",
+                                totalUpsertCount.get(),
+                                expectedCount
+                        ));
+                    }
+                }
+            }
+        }
+
+        long totalDeleteCount = executeDeletes();
+        log.trace("{} records:{} resulting in totalUpsertCount:{} totalDeleteCount:{}",
+                config.insertMode, records.size(), totalUpsertCount, totalDeleteCount
+        );
+
+        if (!totalUpsertCount.isPresent()) {
+            if (config.insertMode == UPDATE_INSERT) {
+                throw new ConnectException("目标数据库不支持获取更新记录数，不支持" + UPDATE_INSERT + "模式");
+            } else {
+                log.warn(
+                        "{} 接收记录数:{} , 但无法获取实际更新数（目标数据库不支持），请检查并确认目标表数据是否同步正确，否则请调整更新模式（insert-mode）",
+                        config.insertMode,
+                        records.size()
+                );
+            }
+        }
+
+        final List<SinkRecord> flushedRecords = records;
+        records = new ArrayList<>();
+        missingRecords = new ArrayList<>();
+        deletesInBatch = false;
+        return flushedRecords;
+    }
+
+    /**
+     * @return an optional count of all updated rows or an empty optional if no info is available
+     */
+    private Optional<Long> executeUpdates() throws SQLException {
+        Optional<Long> count = Optional.empty();
+
+        int[] updateCounts = upsertPreparedStatement.executeBatch();
+        for (int i = 0; i < updateCounts.length; i++) {
+            int updateCount = updateCounts[i];
+            if (updateCount != Statement.SUCCESS_NO_INFO) {
+                count = count.isPresent()
+                        ? count.map(total -> total + updateCount)
+                        : Optional.of((long) updateCount);
+                if (updateCount == 0) {
+                    missingRecords.add(records.get(i));
+                }
+            }
+        }
+
+        return count;
+    }
+
+    private long executeDeletes() throws SQLException {
+        long totalDeleteCount = 0;
+        if (nonNull(deletePreparedStatement)) {
+            for (int updateCount : deletePreparedStatement.executeBatch()) {
+                if (updateCount != Statement.SUCCESS_NO_INFO) {
+                    totalDeleteCount += updateCount;
+                }
+            }
+        }
+        return totalDeleteCount;
+    }
+
+    private long executeMissingInsert() throws SQLException{
+        long totalInsertCount = 0;
+
+        for (SinkRecord record : missingRecords) {
+            if (nonNull(record.value()) && nonNull(missingInsertPreparedStatement)) {
+                missingInsertStatementBinder.bindRecord(record);
+            }
+        }
+
+        int[] updateCounts = missingInsertPreparedStatement.executeBatch();
+        for (int i = 0; i < updateCounts.length; i++) {
+            int updateCount = updateCounts[i];
+            if (updateCount != Statement.SUCCESS_NO_INFO) {
+                totalInsertCount += updateCount;
+            }
+        }
+
+        return totalInsertCount;
+    }
+
+    private long expectedUpdateCount() {
+        return records
+                .stream()
+                // ignore deletes
+                .filter(record -> nonNull(record.value()) || !config.deleteEnabled)
+                .count();
+    }
+
+    public void close() throws SQLException {
+        log.debug(
+                "Closing BufferedRecords with upsertPreparedStatement: {} deletePreparedStatement: {} " +
+                        "insertPreparedStatement: {}",
+                upsertPreparedStatement,
+                deletePreparedStatement,
+                missingInsertPreparedStatement
+        );
+        if (nonNull(upsertPreparedStatement)) {
+            upsertPreparedStatement.close();
+            upsertPreparedStatement = null;
+        }
+        upsertStatementBinder = null;
+        if (nonNull(deletePreparedStatement)) {
+            deletePreparedStatement.close();
+            deletePreparedStatement = null;
+        }
+        deleteStatementBinder = null;
+        if (nonNull(missingInsertPreparedStatement)) {
+            missingInsertPreparedStatement.close();
+            missingInsertPreparedStatement = null;
+        }
+        missingInsertStatementBinder = null;
+    }
+
+    private String getUpsertSql(JdbcSinkConfig.InsertMode mode) throws SQLException {
+        switch (mode) {
+            case INSERT:
+                return dbDialect.buildInsertStatement(
+                        tableId,
+                        asColumns(fieldsMetadata.keyFieldNames),
+                        asColumns(fieldsMetadata.nonKeyFieldNames),
+                        dbStructure.tableDefinition(connection, tableId)
+                );
+            case UPSERT:
+                if (fieldsMetadata.keyFieldNames.isEmpty()) {
+                    throw new ConnectException(String.format(
+                            "Write to table '%s' in UPSERT mode requires key field names to be known, check the"
+                                    + " primary key configuration",
+                            tableId
+                    ));
+                }
+                try {
+                    return dbDialect.buildUpsertQueryStatement(
+                            tableId,
+                            asColumns(fieldsMetadata.keyFieldNames),
+                            asColumns(fieldsMetadata.nonKeyFieldNames),
+                            dbStructure.tableDefinition(connection, tableId)
+                    );
+                } catch (UnsupportedOperationException e) {
+                    throw new ConnectException(String.format(
+                            "Write to table '%s' in UPSERT mode is not supported with the %s dialect.",
+                            tableId,
+                            dbDialect.name()
+                    ));
+                }
+            case UPDATE:
+            case UPDATE_INSERT:
+                return dbDialect.buildUpdateStatement(
+                        tableId,
+                        asColumns(fieldsMetadata.keyFieldNames),
+                        asColumns(fieldsMetadata.nonKeyFieldNames),
+                        dbStructure.tableDefinition(connection, tableId)
+                );
+            default:
+                throw new ConnectException("Invalid insert mode");
+        }
+    }
+
+    private String getDeleteSql() {
+        String sql = null;
+        if (config.deleteEnabled) {
+            switch (config.pkMode) {
+                case RECORD_KEY:
+                    if (fieldsMetadata.keyFieldNames.isEmpty()) {
+                        throw new ConnectException("Require primary keys to support delete");
+                    }
+                    try {
+                        sql = dbDialect.buildDeleteStatement(
+                                tableId,
+                                asColumns(fieldsMetadata.keyFieldNames)
+                        );
+                    } catch (UnsupportedOperationException e) {
+                        throw new ConnectException(String.format(
+                                "Deletes to table '%s' are not supported with the %s dialect.",
+                                tableId,
+                                dbDialect.name()
+                        ));
+                    }
+                    break;
+
+                default:
+                    throw new ConnectException("Deletes are only supported for pk.mode record_key");
+            }
+        }
+        return sql;
+    }
+
+    private Collection<ColumnId> asColumns(Collection<String> names) {
+        return names.stream()
+                .map(name -> new ColumnId(tableId, name))
+                .collect(Collectors.toList());
+    }
 }
