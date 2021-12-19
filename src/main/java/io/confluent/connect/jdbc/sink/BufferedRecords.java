@@ -238,21 +238,9 @@ public class BufferedRecords {
         }
 
         long totalDeleteCount = executeDeletes();
-        log.trace("{} records:{} resulting in totalUpsertCount:{} totalDeleteCount:{}",
+        log.info("{} records:{} resulting in totalUpsertCount:{} totalDeleteCount:{}",
                 config.insertMode, records.size(), totalUpsertCount, totalDeleteCount
         );
-
-        if (!totalUpsertCount.isPresent()) {
-            if (config.insertMode == UPDATE_INSERT) {
-                throw new ConnectException("目标数据库不支持获取更新记录数，不支持" + UPDATE_INSERT + "模式");
-            } else {
-                log.warn(
-                        "{} 接收记录数:{} , 但无法获取实际更新数（目标数据库不支持），请检查并确认目标表数据是否同步正确，否则请调整更新模式（insert-mode）",
-                        config.insertMode,
-                        records.size()
-                );
-            }
-        }
 
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
