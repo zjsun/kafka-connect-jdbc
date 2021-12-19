@@ -177,7 +177,7 @@ public class BufferedRecords {
     @SneakyThrows
     protected Pair<PreparedStatement, StatementBinder> createStatementAndBinder(JdbcSinkConfig.InsertMode mode, SchemaPair schemaPair) {
         String sql = mode == null ? getDeleteSql() : getUpsertSql(mode);
-        log.info("Create {} sql: {}", mode == null ? "DELETE" : mode, sql);
+        log.debug("Create {} sql: {}", mode == null ? "DELETE" : mode, sql);
         if (StringUtils.isEmpty(sql)) return null;
 
         PreparedStatement statement = dbDialect.createPreparedStatement(connection, sql);
